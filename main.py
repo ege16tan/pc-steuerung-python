@@ -29,7 +29,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel
 
 PLANS = {
@@ -48,6 +48,7 @@ _events = deque(maxlen=50)
 _pending = {"at": None, "seconds": 0}
 
 CREDENTIALS_FILE = Path(__file__).with_name("credentials.json")
+LOG_FILE = Path(__file__).with_name("agent.log")
 
 
 def _load_credentials() -> dict | None:
@@ -63,15 +64,28 @@ def _load_credentials() -> dict | None:
 _credentials = _load_credentials()
 
 
+def _append_log(line: str) -> None:
+    try:
+        if LOG_FILE.exists() and LOG_FILE.stat().st_size > 1_000_000:
+            LOG_FILE.replace(LOG_FILE.with_name(LOG_FILE.name + ".1"))
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except OSError:
+        pass
+
+
 def _log(action: str, detail: str, ok: bool = True) -> None:
+    now = datetime.now()
     entry = {
-        "time": datetime.now().strftime("%H:%M:%S"),
+        "time": now.strftime("%Y-%m-%d %H:%M:%S"),
         "action": action,
         "detail": detail,
         "ok": ok,
     }
+    line = f"{entry['time']}  {action}  {detail}  {'ok' if ok else 'FEHLER'}"
     with _lock:
         _events.appendleft(entry)
+        _append_log(line)
     print(f"[{entry['time']}] {action} {detail} ok={ok}", flush=True)
 
 
@@ -285,6 +299,21 @@ def events(_: None = Depends(require_token)) -> dict:
         return {"events": list(_events)}
 
 
+@app.get("/log", response_class=PlainTextResponse)
+def log(
+    lines: int = Query(200, ge=1, le=1000),
+    _: None = Depends(require_token),
+) -> str:
+    try:
+        if not LOG_FILE.exists():
+            return ""
+        with open(LOG_FILE, "r", encoding="utf-8", errors="replace") as f:
+            content = f.readlines()
+        return "".join(content[-lines:])
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"Log konnte nicht gelesen werden: {e}")
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
     return PAGE
@@ -346,6 +375,7 @@ PAGE = """<!doctype html>
  #log .time{color:var(--muted);margin-right:8px}
  #log .action{color:#93c5fd;font-weight:600}
  #log .err{color:#fca5a5}
+ .filelog{font:12px/1.6 ui-monospace,"Cascadia Mono",Consolas,monospace;max-height:300px;overflow:auto;white-space:pre-wrap;color:#cfd6e4}
 </style>
 </head>
 <body>
@@ -403,6 +433,11 @@ PAGE = """<!doctype html>
    <div class="hint" id="authHint">Zugriff vom Handy: Benutzername + Passwort (Basic Auth).</div>
   </div>
  </div>
+
+ <div class="card" style="margin-top:16px">
+  <h2>Verlauf (Logdatei)</h2>
+  <div id="filelog" class="filelog">Wird geladen ...</div>
+ </div>
  </div>
 </div>
 <script>
@@ -416,7 +451,9 @@ async function checkSetup(){
     if(window.__started) return;
     window.__started = true;
     refresh();
+    loadFileLog();
     setInterval(refresh, 2000);
+    setInterval(loadFileLog, 10000);
   };
   try{
     const r = await fetch('/setup-status');
@@ -472,6 +509,14 @@ function fmt(s){
   const m = Math.round(s / 60);
   if(m < 60) return m + ' min';
   return Math.floor(m / 60) + ' h ' + (m % 60) + ' min';
+}
+async function loadFileLog(){
+  try{
+    const r = await call('/log?lines=200');
+    if(!r.ok) return;
+    const text = await r.text();
+    document.getElementById('filelog').textContent = text.trim() || 'noch keine Einträge';
+  }catch(e){}
 }
 let busy = false;
 async function refresh(){

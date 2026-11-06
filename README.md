@@ -67,6 +67,7 @@ damit lässt sich der Agent testen, ohne dass das Handy das erste Mal drückt.
 | POST | `/power-plan?name=high\|balanced\|saver` | Energieplan wechseln |
 | POST | `/wake?mac=AA:BB:CC:DD:EE:FF&port=9` | Magic Packet senden (Wake on LAN) |
 | GET | `/events` | die letzten 50 Kommandos |
+| GET | `/log?lines=200` | die letzten Zeilen der Logdatei (Klartext) |
 
 Vom Handy (LAN) verlangen alle Endpunkte außer `/` und `/setup-status` eine
 Anmeldung per HTTP Basic Auth (Benutzername/Passwort). Lokal am PC (localhost)
@@ -91,6 +92,20 @@ curl -X POST "http://localhost:8000/wake?mac=AA:BB:CC:DD:EE:FF&port=9" -H "X-Tok
 ```
 
 Der `X-Token`-Header ist nur nötig, wenn `PC_AGENT_TOKEN` gesetzt ist.
+
+## Logdatei
+
+Jede Aktion wird mit **Datum und Uhrzeit** in `agent.log` geschrieben. Die Datei
+wird bei ca. 1 MB nach `agent.log.1` rotiert und ist gitignored.
+
+Letzte Zeilen abrufen:
+
+```
+curl "http://localhost:8000/log?lines=200"
+```
+
+Dieselben Einträge zeigt die Web-Oberfläche unter „Ereignisse" (Live) und
+„Verlauf (Logdatei)". Die Android-App hat dafür den Button „Verlauf anzeigen".
 
 ## Simulationsmodus
 
