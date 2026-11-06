@@ -46,6 +46,7 @@ app = FastAPI(title="PC Agent", version="0.1")
 _lock = threading.Lock()
 _events = deque(maxlen=50)
 _pending = {"at": None, "seconds": 0}
+_sim_plan: str | None = None
 
 CREDENTIALS_FILE = Path(__file__).with_name("credentials.json")
 LOG_FILE = Path(__file__).with_name("agent.log")
@@ -128,6 +129,12 @@ def _active_plan() -> str:
         if guid in out.lower():
             return name
     return "anderer"
+
+
+def _current_plan() -> str:
+    if SIMULATE and _sim_plan:
+        return _sim_plan
+    return _active_plan()
 
 
 def _is_local(request: Request) -> bool:
@@ -213,6 +220,20 @@ def setup(request: Request, body: SetupRequest) -> dict:
     return {"ok": True, "user": user}
 
 
+@app.post("/mode")
+def set_mode(
+    simulate: bool = Query(...),
+    _: None = Depends(require_token),
+) -> dict:
+    global SIMULATE, _sim_plan
+    SIMULATE = simulate
+    _sim_plan = None
+    with _lock:
+        _pending.update(at=None, seconds=0)
+    _log("mode", "SIMULATION" if simulate else "ECHT")
+    return {"ok": True, "simulate": SIMULATE}
+
+
 @app.get("/status")
 def status(_: None = Depends(require_token)) -> dict:
     with _lock:
@@ -223,7 +244,7 @@ def status(_: None = Depends(require_token)) -> dict:
         "online": True,
         "host": os.environ.get("COMPUTERNAME", "?"),
         "simulate": SIMULATE,
-        "power_plan": _active_plan(),
+        "power_plan": _current_plan(),
         "pending_shutdown": pending["seconds"] if pending["at"] else 0,
         "setup_required": _credentials is None,
     }
@@ -266,10 +287,13 @@ def power_plan(
     name: str = Query(..., pattern="^(high|balanced|saver)$"),
     _: None = Depends(require_token),
 ) -> dict:
+    global _sim_plan
     code, out = _run(["powercfg", "/setactive", PLANS[name]])
     _log("power-plan", f"{name} {out}".strip(), ok=code == 0)
     if code != 0:
         raise HTTPException(status_code=500, detail=out or "powercfg fehlgeschlagen")
+    if SIMULATE:
+        _sim_plan = name
     return {"ok": True, "plan": name, "detail": out}
 
 
@@ -416,6 +440,11 @@ PAGE = """<!doctype html>
       title="Verzoegerung in Sekunden" onchange="saveDelay()">
     <span class="hint">Sekunden Verzoegerung beim Herunterfahren</span>
    </div>
+   <div class="row">
+    <span class="hint">Debug-Modus:</span>
+    <button class="ghost" onclick="setMode(true)">Simulation</button>
+    <button class="ghost" onclick="setMode(false)">Echt</button>
+   </div>
 
    <div class="sep"></div>
    <h2>Energieplan</h2>
@@ -561,6 +590,16 @@ async function doShutdown(){
   const delay = Math.max(0, parseInt(document.getElementById('delay').value || '0', 10));
   if(!confirm('PC in ' + delay + ' Sekunden herunterfahren?')) return;
   await act('/shutdown?delay=' + delay);
+}
+async function setMode(simulate){
+  if(!simulate && !confirm('Echtzeitmodus aktivieren? Befehle werden wirklich ausgefuehrt!')) return;
+  try{
+    const r = await call('/mode?simulate=' + simulate, 'POST');
+    if(!r.ok) alert('Fehler ' + r.status + ': ' + (await r.text()));
+  }catch(e){
+    alert('Nicht erreichbar: ' + e.message);
+  }
+  refresh();
 }
 checkSetup();
 </script>

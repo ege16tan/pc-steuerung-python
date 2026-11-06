@@ -60,6 +60,7 @@ damit lässt sich der Agent testen, ohne dass das Handy das erste Mal drückt.
 |---|---|---|
 | GET | `/setup-status` | ob noch Zugangsdaten eingerichtet werden müssen |
 | POST | `/setup` | Zugangsdaten anlegen (nur von localhost) |
+| POST | `/mode?simulate=true\|false` | Simulation/Echtzeit umschalten |
 | GET | `/status` | online, Energieplan, laufendes Herunterfahren |
 | POST | `/shutdown?delay=60` | Herunterfahren in `delay` Sekunden |
 | POST | `/abort` | laufendes Herunterfahren abbrechen |
@@ -107,11 +108,21 @@ curl "http://localhost:8000/log?lines=200"
 Dieselben Einträge zeigt die Web-Oberfläche unter „Ereignisse" (Live) und
 „Verlauf (Logdatei)". Die Android-App hat dafür den Button „Verlauf anzeigen".
 
-## Simulationsmodus
+## Simulationsmodus & Debug-Umschalter
 
 `PC_AGENT_SIMULATE=1` (Standard) führt **nichts** aus, sondern schreibt nur ins
 Ereignis-Log. Erst mit `PC_AGENT_SIMULATE=0` wird wirklich heruntergefahren.
 Auch `/wake` sendet im Simulationsmodus kein Packet, sondern loggt nur.
+
+Zum Testen lässt sich der Modus zur Laufzeit umschalten:
+
+- **Web-Oberfläche:** Debug-Modus → „Simulation" / „Echt"
+- **Android-App:** Einstellungen → Echtzeitmodus
+- **API:** `curl -X POST "http://localhost:8000/mode?simulate=false"`
+
+**Achtung:** Im Echtmodus werden Befehle wirklich ausgeführt (Herunterfahren,
+Ruhezustand, Energieplan). Der Modus gilt bis zum Neustart; der Startwert kommt
+weiterhin aus `PC_AGENT_SIMULATE`.
 
 ## Firewall (einmalig, als Administrator)
 
