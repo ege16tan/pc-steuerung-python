@@ -109,7 +109,10 @@ def _wake(mac: str, port: int = 9) -> bool:
     parts = mac_clean.split(":")
     if len(parts) != 6:
         return False
-    mac_bytes = bytes(int(p, 16) for p in parts)
+    try:
+        mac_bytes = bytes(int(p, 16) for p in parts)
+    except ValueError:
+        return False
     if SIMULATE:
         return True
     packet = b"\xff" * 6 + mac_bytes * 16
