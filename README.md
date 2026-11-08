@@ -23,33 +23,34 @@ mehr nötig. `setx` wirkt erst in einem neuen Fenster.
 start.bat
 ```
 
-Läuft dann auf Port 8000, sichtbar im Heimnetz.
+Startet gezielt die Python-Version und speichert sie als bevorzugt. Für den
+Standardstart mit Rust die Projektdatei `..\start-agent.bat` verwenden.
+Beide Versionen können in der Web-UI oder im gemeinsamen Tray gewechselt werden.
 
 ## Tray-Steuerung (Taskleiste)
 
-`start-tray.bat` legt ein Symbol in die Windows-Taskleiste (Infobereich).
-**Linksklick** öffnet ein Quick-Action-Popup (Agent starten/stoppen,
-PC herunterfahren, Abbrechen, Web-Oberfläche). **Rechtsklick** öffnet das
-Kontextmenü mit:
+`start-tray.bat` startet das gemeinsame Symbol in der Windows-Taskleiste.
+Doppelklick öffnet die Web-UI; das Kontextmenü bietet:
 
-- **Agent starten** / **Agent stoppen** – startet bzw. beendet den Webserver
-  auf Port 8000
-- **Status pruefen** – zeigt Host, Energieplan, Simulationsmodus und ein
-  laufendes Herunterfahren
-- **Web-Oberflaeche oeffnen** – öffnet `http://localhost:8000/`
+- **Agent starten** / **Agent stoppen** – startet bzw. beendet die bevorzugte Version
+- **Version auswählen** – Rust (empfohlen) oder Python starten
+- **Web-UI im Browser öffnen** – öffnet `http://localhost:8000/`
+- **Herunterfahren** / **Abbrechen** – direkte PC-Steuerung im Tray
+- **Status aktualisieren** – zeigt aktive und bevorzugte Version
 - **Tray beenden** – schließt nur das Tray, nicht den Agenten
 
-Das Symbol ist grün, wenn der Agent läuft, und grau, wenn er gestoppt ist.
-Das Tray aktualisiert den Status alle 2 Sekunden und funktioniert auch mit
-einem per Autostart gestarteten Agenten.
+Das Symbol ist grün für Rust, blau für Python und grau, wenn der Agent gestoppt
+ist. Das Tray aktualisiert den Status laufend und funktioniert mit beiden
+Agenten.
 
 ## Im Browser prüfen
 
 `http://localhost:8000/` — Token nur nötig, wenn `PC_AGENT_TOKEN` gesetzt ist,
 dann `http://localhost:8000/?token=<dein-token>`.
 
-Die Seite zeigt den Verbindungsstatus, den aktiven Energieplan, ein laufendes
-Herunterfahren (mit Restzeit) und jedes eingegangene Kommando mit Uhrzeit.
+Die Seite zeigt den Verbindungsstatus, die aktive und bevorzugte Agent-Version,
+den Energieplan, ein laufendes Herunterfahren (mit Restzeit) und jedes
+eingegangene Kommando mit Uhrzeit.
 Die Verzögerung beim Herunterfahren ist einstellbar, der aktive Energieplan ist
 markiert. Die Buttons dort lösen dieselben Endpunkte aus wie die Android-App —
 damit lässt sich der Agent testen, ohne dass das Handy das erste Mal drückt.
@@ -60,6 +61,8 @@ damit lässt sich der Agent testen, ohne dass das Handy das erste Mal drückt.
 |---|---|---|
 | GET | `/setup-status` | ob noch Zugangsdaten eingerichtet werden müssen |
 | POST | `/setup` | Zugangsdaten anlegen (nur von localhost) |
+| GET | `/agent-version` | aktive und bevorzugte Agent-Version |
+| POST | `/agent-version?version=rust\|python` | Version speichern und Agent wechseln |
 | POST | `/mode?simulate=true\|false` | Simulation/Echtzeit umschalten |
 | GET | `/status` | online, Energieplan, laufendes Herunterfahren |
 | POST | `/shutdown?delay=60` | Herunterfahren in `delay` Sekunden |
@@ -132,10 +135,10 @@ netsh advfirewall firewall add rule name="PC Agent 8000" dir=in action=allow pro
 
 ## Autostart
 
-Die Skripte in diesem Ordner richten die Aufgabe **"PC Agent 8000"** in der
-Windows-Aufgabenplanung ein. Sie läuft bei der Anmeldung des aktuellen
-Benutzers und startet `start.bat` (Konsolenfenster, Port 8000). Admin-Rechte
-sind nicht nötig, weil die Aufgabe nur interaktiv läuft ("Nur interaktiv").
+Die Skripte in diesem Ordner richten die gemeinsame Aufgabe **"PC Steuerung Agent"**
+in der Windows-Aufgabenplanung ein. Sie läuft bei der Anmeldung des aktuellen
+Benutzers und startet die bevorzugte Version über `start-agent.bat` im Projektstamm.
+Admin-Rechte sind nicht nötig, weil die Aufgabe nur interaktiv läuft ("Nur interaktiv").
 
 Einrichten (im Ordner `PC App`):
 
@@ -144,7 +147,7 @@ powershell -ExecutionPolicy Bypass -File .\install-autostart.ps1
 ```
 
 Das Skript ist idempotent: Eine vorhandene Aufgabe wird zuerst entfernt und
-dann neu registriert. Es prüft außerdem, ob `start.bat` im selben Ordner liegt.
+dann neu registriert. Es startet `start-agent.bat` aus dem Projektstamm.
 Die Aufgabe hat kein Zeitlimit und wird nicht bei Batteriebetrieb beendet.
 
 Soll zusätzlich die Tray-Steuerung automatisch starten:
@@ -153,14 +156,14 @@ Soll zusätzlich die Tray-Steuerung automatisch starten:
 powershell -ExecutionPolicy Bypass -File .\install-autostart.ps1 -WithTray
 ```
 
-Dann wird eine zweite Aufgabe **"PC Agent Tray"** registriert. Entfernen
+Dann wird eine zweite Aufgabe **"PC Steuerung Tray"** registriert. Entfernen
 entsprechend mit `.\uninstall-autostart.ps1 -WithTray`.
 
 Prüfen — oder sofort starten, ohne Ab- und Anmelden:
 
 ```
-Get-ScheduledTask -TaskName "PC Agent 8000"
-Start-ScheduledTask -TaskName "PC Agent 8000"
+Get-ScheduledTask -TaskName "PC Steuerung Agent"
+Start-ScheduledTask -TaskName "PC Steuerung Agent"
 ```
 
 Entfernen:

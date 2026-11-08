@@ -8,20 +8,29 @@
 # des aktuellen Benutzers ("Nur interaktiv").
 
 param(
-    [string]$TaskName = 'PC Agent 8000',
+    [string]$TaskName = 'PC Steuerung Agent',
     [switch]$WithTray
 )
 
 $ErrorActionPreference = 'Stop'
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$startBat  = Join-Path $scriptDir 'start.bat'
+$projectRoot = Split-Path -Parent $scriptDir
+$startBat  = Join-Path $projectRoot 'start-agent.bat'
 
 if (-not (Test-Path -LiteralPath $startBat -PathType Leaf)) {
     throw "start.bat wurde nicht gefunden: $startBat"
 }
 
 $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+
+# Alte getrennte Python-/Rust-Aufgaben entfernen, damit beim Anmelden nicht
+# zwei Agenten gleichzeitig um Port 8000 konkurrieren.
+foreach ($legacyName in @('PC Agent 8000', 'PC Agent Rust 8000', 'PC Agent Tray', 'PC Agent Rust Tray')) {
+    if ($legacyName -ne $TaskName -and (Get-ScheduledTask -TaskName $legacyName -ErrorAction SilentlyContinue)) {
+        Unregister-ScheduledTask -TaskName $legacyName -Confirm:$false
+    }
+}
 
 # Idempotent: eine vorhandene Aufgabe zuerst entfernen.
 $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
@@ -32,7 +41,7 @@ if ($existing) {
 
 $action = New-ScheduledTaskAction `
     -Execute $startBat `
-    -WorkingDirectory $scriptDir
+    -WorkingDirectory $projectRoot
 
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $currentUser
 
@@ -54,7 +63,7 @@ Register-ScheduledTask `
     -Trigger $trigger `
     -Principal $principal `
     -Settings $settings `
-    -Description 'Startet den PC-Agenten (FastAPI) auf Port 8000' `
+    -Description 'Startet die bevorzugte PC-Agent-Version auf Port 8000' `
     -Force | Out-Null
 
 Write-Host "Aufgabe registriert: $TaskName"
@@ -63,8 +72,8 @@ Write-Host "  Aktion:   $startBat"
 Write-Host "  StartIn:  $scriptDir"
 
 if ($WithTray) {
-    $trayTaskName = 'PC Agent Tray'
-    $startTray = Join-Path $scriptDir 'start-tray.bat'
+    $trayTaskName = 'PC Steuerung Tray'
+    $startTray = Join-Path $projectRoot 'start-tray.bat'
     if (-not (Test-Path -LiteralPath $startTray -PathType Leaf)) {
         throw "start-tray.bat wurde nicht gefunden: $startTray"
     }
@@ -73,7 +82,7 @@ if ($WithTray) {
         Unregister-ScheduledTask -TaskName $trayTaskName -Confirm:$false
         Write-Host "Vorhandene Aufgabe entfernt: $trayTaskName"
     }
-    $trayAction = New-ScheduledTaskAction -Execute $startTray -WorkingDirectory $scriptDir
+    $trayAction = New-ScheduledTaskAction -Execute $startTray -WorkingDirectory $projectRoot
     Register-ScheduledTask `
         -TaskName $trayTaskName `
         -Action $trayAction `

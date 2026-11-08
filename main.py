@@ -50,6 +50,11 @@ _sim_plan: str | None = None
 
 CREDENTIALS_FILE = Path(__file__).with_name("credentials.json")
 LOG_FILE = Path(__file__).with_name("agent.log")
+AGENT_VERSION_FILE = (
+    Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local")))
+    / "PC Steuerung"
+    / "agent-version.txt"
+)
 
 
 def _load_credentials() -> dict | None:
@@ -223,6 +228,55 @@ def setup(request: Request, body: SetupRequest) -> dict:
     return {"ok": True, "user": user}
 
 
+def _preferred_agent_version() -> str:
+    try:
+        version = AGENT_VERSION_FILE.read_text(encoding="utf-8").strip().lower()
+    except OSError:
+        return "rust"
+    return version if version in ("python", "rust") else "rust"
+
+
+@app.get("/agent-version")
+def agent_version(_: None = Depends(require_token)) -> dict:
+    return {"active": "python", "selected": _preferred_agent_version()}
+
+
+@app.post("/agent-version")
+def switch_agent_version(
+    version: str = Query(..., pattern="^(python|rust)$"),
+    _: None = Depends(require_token),
+) -> dict:
+    manager = Path(__file__).resolve().parent.parent / "agent-manager.ps1"
+    if not manager.is_file():
+        raise HTTPException(status_code=500, detail="Agent-Verwaltung wurde nicht gefunden")
+    try:
+        subprocess.Popen(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-WindowStyle",
+                "Hidden",
+                "-File",
+                str(manager),
+                "-Action",
+                "switch",
+                "-Version",
+                version,
+                "-Port",
+                "8000",
+            ],
+            cwd=manager.parent,
+            creationflags=CREATE_NO_WINDOW,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"Versionswechsel fehlgeschlagen: {e}")
+    return {"ok": True, "selected": version, "switching": True}
+
+
 @app.post("/mode")
 def set_mode(
     simulate: bool = Query(...),
@@ -393,6 +447,8 @@ PAGE = """<!doctype html>
  input{font:inherit;font-size:14px;padding:10px 12px;border-radius:10px;border:1px solid #2b3442;
   background:#10141b;color:var(--text);width:100%}
  input:focus{outline:2px solid #2563eb66;border-color:var(--accent)}
+ select{font:inherit;font-size:14px;padding:10px 12px;border-radius:10px;border:1px solid #2b3442;
+  background:#10141b;color:var(--text);min-width:190px}
  .delay{flex:0 0 150px}
  .hint{color:var(--muted);font-size:12.5px}
  .sep{height:1px;background:var(--line);margin:16px 0}
@@ -424,6 +480,19 @@ PAGE = """<!doctype html>
  </div>
 
  <div id="main">
+ <div class="card" style="margin:0 0 16px">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+   <div><h2 style="margin-bottom:4px">Agent-Version</h2>
+    <div class="hint">Aktiv: <strong id="activeAgent">wird geprüft …</strong></div></div>
+   <div class="row" style="margin-top:0">
+    <select id="agentVersion" aria-label="Bevorzugte Agent-Version">
+     <option value="rust">Rust (empfohlen)</option><option value="python">Python</option>
+    </select>
+    <button id="switchVersion" onclick="switchAgentVersion()">Version verwenden</button>
+   </div>
+  </div>
+  <div class="hint" id="agentVersionMessage" style="margin-top:10px">Rust ist die bevorzugte Version. Python bleibt als Alternative verfügbar.</div>
+ </div>
  <div class="grid">
   <div class="card">
    <h2>Status</h2>
@@ -484,8 +553,10 @@ async function checkSetup(){
     window.__started = true;
     refresh();
     loadFileLog();
+    loadAgentVersion();
     setInterval(refresh, 2000);
     setInterval(loadFileLog, 10000);
+    setInterval(loadAgentVersion, 5000);
   };
   try{
     const r = await fetch('/setup-status');
@@ -525,6 +596,40 @@ function saveDelay(){
 }
 async function call(path, method){
   return fetch(path, {method: method || 'GET'});
+}
+async function loadAgentVersion(){
+  try{
+    const r = await call('/agent-version');
+    if(!r.ok) return;
+    const d = await r.json();
+    const names = {rust:'Rust', python:'Python'};
+    document.getElementById('activeAgent').textContent = names[d.active] || d.active || 'gestoppt';
+    const choice = document.getElementById('agentVersion');
+    if(document.activeElement !== choice) choice.value = d.selected || 'rust';
+    document.getElementById('switchVersion').disabled = d.active === choice.value && d.selected === choice.value;
+  }catch(e){}
+}
+async function switchAgentVersion(){
+  const version = document.getElementById('agentVersion').value;
+  const message = document.getElementById('agentVersionMessage');
+  const button = document.getElementById('switchVersion');
+  button.disabled = true;
+  message.textContent = 'Wechsel läuft. Der Agent wird neu gestartet …';
+  try{
+    const r = await call('/agent-version?version=' + encodeURIComponent(version), 'POST');
+    const data = await r.json().catch(() => ({}));
+    if(!r.ok){ message.textContent = data.detail || 'Versionswechsel fehlgeschlagen.'; button.disabled = false; return; }
+    message.textContent = 'Auswahl gespeichert. Warte auf ' + (version === 'rust' ? 'Rust' : 'Python') + ' …';
+    for(let attempt=0; attempt<150; attempt++){
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      try{
+        const status = await call('/agent-version');
+        if(status.ok && (await status.json()).active === version){ location.reload(); return; }
+      }catch(e){}
+    }
+    message.textContent = 'Der Wechsel dauert noch. Aktualisiere die Seite gleich erneut.';
+    button.disabled = false;
+  }catch(e){ message.textContent = 'Verbindung zum Agenten wurde unterbrochen. Die Seite prüft weiter …'; }
 }
 async function act(path){
   try{
