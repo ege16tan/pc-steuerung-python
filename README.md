@@ -60,6 +60,8 @@ damit lässt sich der Agent testen, ohne dass das Handy das erste Mal drückt.
 | Methode | Pfad | Wirkung |
 |---|---|---|
 | GET | `/setup-status` | ob noch Zugangsdaten eingerichtet werden müssen |
+| GET | `/pairing-info` | PC-Name, LAN-IP und Port für die Einrichtung |
+| GET | `/pairing-qr.svg` | QR-Code ohne Zugangsdaten |
 | POST | `/setup` | Zugangsdaten anlegen (nur von localhost) |
 | GET | `/agent-version` | aktive und bevorzugte Agent-Version |
 | POST | `/agent-version?version=rust\|python` | Version speichern und Agent wechseln |
