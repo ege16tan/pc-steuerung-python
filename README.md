@@ -1,4 +1,8 @@
-# PC Agent
+# PC Agent (Python) — archiviert
+
+> **Dieses Repository ist ein Archiv.** Die Python-Version wurde zugunsten des
+> Rust-Agenten eingestellt und wird nicht mehr weiterentwickelt. Aktuell ist
+> [ege16tan/pc-steuerung](https://github.com/ege16tan/pc-steuerung).
 
 Kleiner FastAPI-Dienst, der einen Windows-PC im Heimnetz steuert. Gegenstück zur Android-App.
 
